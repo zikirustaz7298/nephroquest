@@ -13,6 +13,8 @@ import {
   checkHarmStates,
   scoreCase,
 } from "../../../lib/engine";
+import { drawWoodland } from "../../../lib/woodland";
+import { saveCase } from "../../../lib/journey";
 import { sfx } from "../../../lib/sfx";
 import {
   WORLD,
@@ -53,13 +55,15 @@ export default function WardGame({ caseId, onExit }: Props) {
   const [management, setManagement] = useState<string[]>([]);
   const [result, setResult] = useState<ScoreBreakdown | null>(null);
   const [hint, setHint] = useState<string | null>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const [labOpen, setLabOpen] = useState(false);
   const [nearZone, setNearZone] = useState<string | null>(null);
 
   const severity = Math.min(1, progress.clock / 400 + progress.penalties.length * 0.25);
 
   // ------------------------------------------------------------- game loop
   useEffect(() => {
-    if (phase !== "playing" || !caseData) return;
+    if (phase !== "playing" || !caseData || dialog) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d")!;
@@ -124,8 +128,10 @@ export default function WardGame({ caseId, onExit }: Props) {
       }
 
       // render
-      drawWorld(ctx, t, { severity });
-      drawDoctor(ctx, np, a, t);
+      const motionTime = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : t;
+      drawWoodland(ctx, motionTime, { severity });
+      drawDoctor(ctx, np, a, motionTime);
+      canvas.dataset.position = `${Math.round(np.x)},${Math.round(np.y)}`;
 
       // interaction hint above nearest zone
       if (near) {
@@ -146,11 +152,13 @@ export default function WardGame({ caseId, onExit }: Props) {
     };
     rafRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [phase, severity, nearZone, caseData]);
+  }, [phase, severity, nearZone, caseData, dialog]);
 
   // ---------------------------------------------------------------- input
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      if (dialog || phase !== "playing" || document.activeElement !== canvasRef.current) return;
+      if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) e.preventDefault();
       keysRef.current[e.key.toLowerCase()] = true;
       if (e.key.toLowerCase() === "e") interact();
     };
@@ -178,14 +186,15 @@ export default function WardGame({ caseId, onExit }: Props) {
     return p2;
   };
 
-  const interact = useCallback(() => {
+  const interact = useCallback((station?: string) => {
     if (phase !== "playing" || !caseData) return;
-    const z = zoneAt(posRef.current) || ZONES.find((zz) => {
+    const z = (station ? ZONES.find(z => z.id === station) : zoneAt(posRef.current)) || ZONES.find((zz) => {
       const box = { x: zz.x - 20, y: zz.y - 20, w: zz.w + 40, h: zz.h + 40 };
       const p = posRef.current;
       return p.x > box.x && p.x < box.x + box.w && p.y > box.y && p.y < box.y + box.h;
     });
     if (!z) return;
+    setLabOpen(z.id === "lab");
     sfx.doorOpen();
 
     if (z.id === "bed") {
@@ -203,7 +212,7 @@ export default function WardGame({ caseId, onExit }: Props) {
               sfx.pageSound();
               setTimeout(() => {
                 setDialog({
-                  title: `�� ${h.question}`,
+                  title: `✦ ${h.question}`,
                   body: <p style={{ fontSize: 15 }}>{h.answer}</p>,
                 });
               }, 50);
@@ -213,7 +222,7 @@ export default function WardGame({ caseId, onExit }: Props) {
           </button>
         );
       });
-      setDialog({ title: "�� Patient history", body: <>{items}</> });
+      setDialog({ title: "Patient history", body: <>{items}</> });
     } else if (z.id === "lab") {
       const items = caseData.testOptions.map((t) => {
         const ordered = progress.testsOrdered.includes(t.id);
@@ -247,22 +256,22 @@ export default function WardGame({ caseId, onExit }: Props) {
               sfx.ding();
             }}
           >
-            �� {t.name} <span className="small muted">◆{t.cost} · {t.time}m</span>
+            ✦ {t.name} <span className="small muted">◆{t.cost} · {t.time}m</span>
           </button>
         );
       });
       setDialog({
-        title: `�� Lab bench — budget ◆${STARTING_BUDGET - progress.budgetUsed} remaining`,
+        title: `✦ Lab bench — budget ◆${STARTING_BUDGET - progress.budgetUsed} remaining`,
         body: <>{items}</>,
       });
     } else if (z.id === "phone") {
       // consultant hint: costs 2 budget, reveals one key teaching point
       setDialog({
-        title: "☎️ Phone a consultant",
+        title: "The woodland mentor",
         body: (
           <>
             <p className="small" style={{ marginBottom: 10 }}>
-              Calling costs <b>◆2 budget</b> and the consultant will nudge you toward one key point.
+              A mentor’s hint costs <b>◆2 budget</b> and the consultant will nudge you toward one key point.
             </p>
             <button
               className="btn primary"
@@ -275,7 +284,7 @@ export default function WardGame({ caseId, onExit }: Props) {
                 sfx.pageSound();
               }}
             >
-              Call now (◆2)
+              Ask mentor (◆2)
             </button>
             {hint && <div className="teach" style={{ marginTop: 10 }}>Consultant: {hint}</div>}
           </>
@@ -284,7 +293,7 @@ export default function WardGame({ caseId, onExit }: Props) {
     } else if (z.id === "chart") {
       if (progress.testsOrdered.length === 0 && progress.historyAsked.length === 0) {
         setDialog({
-          title: "�� Chart trolley",
+          title: "✦ Chart trolley",
           body: <p>You haven't even met the patient yet. (Go to the bed first!)</p>,
         });
         return;
@@ -293,7 +302,7 @@ export default function WardGame({ caseId, onExit }: Props) {
       setPhase("diagnosis");
     } else if (z.id === "exit") {
       setDialog({
-        title: "�� Leave the ward?",
+        title: "✦ Leave the ward?",
         body: (
           <>
             <p className="small" style={{ marginBottom: 10 }}>
@@ -305,6 +314,27 @@ export default function WardGame({ caseId, onExit }: Props) {
       });
     }
   }, [phase, progress, caseData, hint]);
+
+  // Keep an open investigation panel in sync with the paid workup.
+  useEffect(() => { if (labOpen && dialog) interact("lab"); }, [progress]);
+  useEffect(() => {
+    if (!dialog) return;
+    keysRef.current = {}; touchRef.current = {dx:0,dy:0};
+    const previous = document.activeElement as HTMLElement | null;
+    modalRef.current?.focus();
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); setDialog(null); }
+      if (e.key === "Tab") {
+        const nodes = modalRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], [tabindex="0"]');
+        if (!nodes?.length) { e.preventDefault(); return; }
+        const first = nodes[0], last = nodes[nodes.length-1];
+        if (e.shiftKey && (document.activeElement === first || document.activeElement === modalRef.current)) { e.preventDefault();last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault();first.focus(); }
+      }
+    };
+    document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("keydown",key); previous?.focus(); };
+  }, [!!dialog]);
 
   // touch joystick
   const joyRef = useRef<HTMLDivElement>(null);
@@ -346,11 +376,7 @@ export default function WardGame({ caseId, onExit }: Props) {
     if (r.grade === "A" || r.grade === "B") sfx.success();
     else sfx.fail();
     try {
-      const prev = JSON.parse(localStorage.getItem("nq_scores") || "{}");
-      if (prev[caseData.id] === undefined || r.total > prev[caseData.id]) {
-        prev[caseData.id] = r.total;
-        localStorage.setItem("nq_scores", JSON.stringify(prev));
-      }
+      saveCase(localStorage, caseData.id, r.total, "");
     } catch {}
   };
 
@@ -364,6 +390,7 @@ export default function WardGame({ caseId, onExit }: Props) {
   // ---------------------------------------------------------------- render
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10, padding: "12px 10px 30px" }}>
+      <section className="chapter-banner"><p className="eyebrow">DEWDROP MEADOWS · THE WOODLAND INFIRMARY</p><h1>{caseData.title === "The Dry Gardener" ? "A gardener. A quiet plea for help." : "Another story along the path."}</h1><p>The lantern is lit. Listen to your patient, gather evidence and write the next page of your healer’s journal.</p></section>
       {/* HUD */}
       <div className="card" style={{ width: "min(96vw, 960px)", padding: "10px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <div>
@@ -393,11 +420,11 @@ export default function WardGame({ caseId, onExit }: Props) {
           <p style={{ fontSize: 15 }}>{caseData.vignette}</p>
           <div style={{ margin: "14px 0", padding: 12, background: "var(--surface2)", borderRadius: 8 }} className="small">
             <b>How to play:</b> WASD / arrows / joystick to move. Walk to the <b>bed</b> to take history,
-            the <b>lab bench</b> to order tests, the <b>phone</b> for a consultant hint, and the
-            <b> chart trolley</b> when ready to diagnose. Watch the monitor — the patient may not wait forever.
+            the <b>lab bench</b> to order tests, the <b>mentor</b> for a consultant hint, and the
+            <b> journal desk</b> when ready to diagnose. Or use the station buttons below the scene. The game clock advances with questions and tests, not real time.
           </div>
           <button className="btn primary" style={{ fontSize: 16 }} onClick={() => { sfx.pageSound(); setPhase("playing"); }}>
-            �� Enter the ward
+            Enter the woodland infirmary
           </button>
         </div>
       )}
@@ -410,7 +437,10 @@ export default function WardGame({ caseId, onExit }: Props) {
             width={WORLD.w}
             height={WORLD.h}
             style={{ width: "100%", height: "auto", borderRadius: 12, border: "1px solid var(--border)", display: "block", cursor: "pointer" }}
-            onClick={() => interact()}
+            aria-label="Walkable woodland infirmary. Arrow keys or WASD to move, E to interact. Station buttons offer an equivalent path."
+            tabIndex={0}
+            onBlur={() => { keysRef.current = {}; }}
+            onClick={() => { canvasRef.current?.focus(); interact(); }}
           />
           {/* mobile joystick */}
           <div
@@ -438,6 +468,22 @@ export default function WardGame({ caseId, onExit }: Props) {
         </div>
       )}
 
+      {phase === "playing" && <section className="journal">
+        <nav className="station-nav" aria-label="Accessible infirmary stations">
+          <button className="btn" onClick={() => interact("bed")}>Patient · history</button>
+          <button className="btn" onClick={() => interact("lab")}>Investigations · lab</button>
+          <button className="btn" onClick={() => interact("phone")}>Mentor · guidance</button>
+          <button className="btn primary" onClick={() => interact("chart")}>Journal · diagnose</button>
+          <button className="btn" onClick={() => interact("exit")}>Leave</button>
+        </nav>
+        <p className="small muted">Your path: listen → investigate → diagnose → stage → manage → reflect. Station buttons do the same work as walking; no precision movement required.</p>
+        {hint && <div className="teach"><b>Mentor’s note</b><p>{hint}</p></div>}
+        <details className="card" open><summary>Patient journal · initial observations & gathered clues</summary>
+          {caseData.initialLabs.map(r=><div className="lab-row" key={r.name}><span>{r.name}</span><b>{r.value} {r.flag}</b></div>)}
+          {caseData.historyOptions.filter(h=>progress.historyAsked.includes(h.id)).map(h=><div className="history-item" key={h.id}><b>{h.question}</b><p>{h.answer}</p></div>)}
+          {caseData.testOptions.filter(t=>progress.testsOrdered.includes(t.id)).map(t=><details key={t.id}><summary>{t.name}</summary>{t.results.map(r=><div className="lab-row" key={r.name}><span>{r.name}</span><b>{r.value} {r.flag}</b></div>)}</details>)}
+        </details>
+      </section>}
       {/* dialog modal */}
       {dialog && phase === "playing" && (
         <div
@@ -447,8 +493,8 @@ export default function WardGame({ caseId, onExit }: Props) {
             display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 16,
           }}
         >
-          <div className="card" style={{ width: "min(94vw, 640px)", maxHeight: "80vh", overflowY: "auto", margin: 0 }}>
-            <h3 style={{ marginTop: 0 }}>{dialog.title}</h3>
+          <div ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="dialog-title" tabIndex={-1} className="card" style={{ width: "min(94vw, 640px)", maxHeight: "80vh", overflowY: "auto", margin: 0 }}>
+            <h3 id="dialog-title" style={{ marginTop: 0 }}>{dialog.title}</h3>
             {dialog.body}
             <button className="btn sm" style={{ marginTop: 10 }} onClick={() => { setDialog(null); sfx.uiClick(); }}>
               Close
@@ -510,6 +556,7 @@ export default function WardGame({ caseId, onExit }: Props) {
       {phase === "result" && result && (
         <div style={{ width: "min(96vw, 960px)" }}>
           <div className="card" style={{ textAlign: "center", padding: 30 }}>
+            <h2>Chapter complete</h2><p className="reward">✦ Woodland healer · Best-score reward: 100 + your best score in journey XP. Replays improve your best, never farm duplicate rewards.</p>
             <div style={{ fontSize: 52, fontWeight: 800 }}>{result.total}</div>
             <div style={{ fontSize: 20, color: result.grade === "A" ? "#4ade80" : result.grade === "D" ? "#f87171" : "#fbbf24" }}>
               Grade {result.grade}
@@ -538,7 +585,7 @@ export default function WardGame({ caseId, onExit }: Props) {
                 <p className="small" style={{ color: "#f87171" }}>Unnecessary: {result.expertComparison.unnecessary.map(testName).join(", ")}</p>
               )}
               {!result.expertComparison.missed.length && !result.expertComparison.unnecessary.length && (
-                <p className="small" style={{ color: "#4ade80" }}>Perfect workup — exactly the expert set! ��</p>
+                <p className="small" style={{ color: "#4ade80" }}>Perfect workup — exactly the expert set! ✦</p>
               )}
             </div>
           </div>

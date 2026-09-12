@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./woodland.css";
+import Shell from '../components/Shell';
 
 export const metadata: Metadata = {
   title: "NephroQuest — Case-Based Nephrology Learning",
@@ -10,7 +12,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><Shell>{children}</Shell></body>
     </html>
   );
 }

@@ -112,8 +112,8 @@ export function drawDoctor(
   ctx.fillRect(2, 14 - legSwing, 6, 3);
 
   // body (white coat)
-  ctx.fillStyle = "#f8fafc";
-  ctx.fillRect(-9, -10, 18, 18);
+  ctx.fillStyle = "#477551";
+  ctx.beginPath(); ctx.moveTo(-9,-10);ctx.lineTo(9,-10);ctx.lineTo(14,11);ctx.lineTo(-14,11);ctx.closePath();ctx.fill();
   // coat opening
   ctx.fillStyle = "#e2e8f0";
   ctx.fillRect(-1, -10, 3, 18);
@@ -149,7 +149,7 @@ export function drawDoctor(
     ctx.fillRect(3, -17, 2, 2);
   }
   // ID badge
-  ctx.fillStyle = "#38bdf8";
+  ctx.fillStyle = "#edc873";
   ctx.fillRect(3, -8, 5, 7);
 
   ctx.restore();
