@@ -1,5 +1,7 @@
 # Dry Gardener milestone verification
 
+> Historical milestone record below. The dependency and Dry Gardener data issues were subsequently corrected; see [release-blocker verification](RELEASE-BLOCKER-VERIFICATION.md) and [clinical rationale](DRY-GARDENER-CLINICAL-RATIONALE.md). Independent code review and repeat technical verification are complete for those fixes. Human clinician review remains outstanding; production promotion is still blocked, but the fixes may be published to the development branch.
+
 ## Delivered on v2/dry-gardener
 - Original local woodland SVG title illustration, green/cream/gold responsive shared shell, persistent opt-in sound and light/dark controls, skip link and reduced-motion CSS.
 - Original canvas woodland infirmary and healer, unchanged collision geometry and keyboard/touch movement, equivalent accessible station buttons.
